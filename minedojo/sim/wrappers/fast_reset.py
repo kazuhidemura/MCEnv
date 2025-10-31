@@ -34,9 +34,11 @@ class FastResetWrapper(gym.Wrapper):
         random_teleport_range_high: int | None,
         random_teleport_range_low: int | None,
         clear_ground: bool = True,
+        apply_start_position_on_reset: bool = True,
     ):
         super().__init__(env=env)
         self._move_flag = True
+        self._apply_start_position_on_reset = apply_start_position_on_reset
         start_time, start_weather = env.start_time, env.initial_weather
         initial_inventory, start_position = env.initial_inventory, env.start_position
         start_health, start_food = env.start_health, env.start_food
@@ -63,7 +65,6 @@ class FastResetWrapper(gym.Wrapper):
         self.random_teleport_range_high = random_teleport_range_high
         self.random_teleport_range_low = random_teleport_range_low
 
-        self.set_start_position =False
         self._reset_cmds = [
             "/kill",
         ]
@@ -78,12 +79,20 @@ class FastResetWrapper(gym.Wrapper):
                 )
 
         self.init_position = None
+        self._start_position = None
         if start_position is not None:
-            self._reset_cmds.append(
-                f'/tp @p {start_position["x"]} {start_position["y"]} {start_position["z"]} {start_position["yaw"]} {start_position["pitch"]}'
+            self._start_position = dict(
+                x=start_position["x"],
+                y=start_position["y"],
+                z=start_position["z"],
+                yaw=start_position["yaw"],
+                pitch=start_position["pitch"],
             )
-            self.set_start_position=True
-            self.init_position = {"x":start_position['x'], "y":start_position['y'], "z":start_position['z']}
+            self.init_position = {
+                "x": start_position["x"],
+                "y": start_position["y"],
+                "z": start_position["z"],
+            }
             
         if clear_ground:
             # kill all creatures
@@ -133,10 +142,34 @@ class FastResetWrapper(gym.Wrapper):
                 self.birth_position = {"x":obs["location_stats"]["pos"][0], "y":obs["location_stats"]["pos"][1], "z":obs["location_stats"]["pos"][2]}
                 # print(info.keys())
 
+            if self._apply_start_position_on_reset and self._start_position is not None:
+                obs, _, _, info = self.teleport_agent(**self._start_position)
+                self.init_position = {
+                    "x": self._start_position["x"],
+                    "y": self._start_position["y"],
+                    "z": self._start_position["z"],
+                }
+
             return obs
 
     def execute_cmd(self, *args, **kwargs):
         return self.env.execute_cmd(*args, **kwargs)
+
+    def teleport_to_start_position(self):
+        if self._start_position is None:
+            raise RuntimeError("No start position was configured for this environment.")
+        obs, reward, done, info = self.teleport_agent(**self._start_position)
+        self.init_position = {
+            "x": self._start_position["x"],
+            "y": self._start_position["y"],
+            "z": self._start_position["z"],
+        }
+        self.birth_position = {
+            "x": self._start_position["x"],
+            "y": self._start_position["y"],
+            "z": self._start_position["z"],
+        }
+        return obs, reward, done, info
 
     def spawn_mobs(self, *args, **kwargs):
         return self.env.spawn_mobs(*args, **kwargs)
